@@ -1,8 +1,33 @@
 const express = require("express");
 const ffmpeg = require("fluent-ffmpeg");
+const fs = require("fs");
+const { execSync } = require("child_process");
 
 const app = express();
 app.use(express.json());
+
+// 🔥 AUTO DOWNLOAD FFMPEG (FIRST RUN)
+const setupFFmpeg = () => {
+  if (!fs.existsSync("./ffmpeg")) {
+    console.log("Downloading FFmpeg...");
+
+    execSync(`
+      curl -L https://github.com/eugeneware/ffmpeg-static/releases/latest/download/linux-x64 -o ffmpeg &&
+      chmod +x ffmpeg
+    `);
+
+    execSync(`
+      curl -L https://github.com/joshwnj/ffprobe-static/releases/latest/download/linux-x64 -o ffprobe &&
+      chmod +x ffprobe
+    `);
+  }
+};
+
+setupFFmpeg();
+
+// 👇 USE DOWNLOADED BINARIES
+ffmpeg.setFfmpegPath("./ffmpeg");
+ffmpeg.setFfprobePath("./ffprobe");
 
 app.post("/analyze", async (req, res) => {
   try {
@@ -24,36 +49,15 @@ app.post("/analyze", async (req, res) => {
       let subtitles = 0;
       let languages = new Set();
 
-      let videoInfo = [];
-      let audioInfo = [];
-
       streams.forEach((s) => {
-        if (s.codec_type === "video") {
-          video++;
-          videoInfo.push({
-            codec: s.codec_name,
-            resolution: `${s.width}x${s.height}`
-          });
-        }
-
+        if (s.codec_type === "video") video++;
         if (s.codec_type === "audio") {
           audio++;
-          audioInfo.push({
-            codec: s.codec_name,
-            channels: s.channels
-          });
-
-          if (s.tags && s.tags.language) {
-            languages.add(s.tags.language);
-          }
+          if (s.tags?.language) languages.add(s.tags.language);
         }
-
         if (s.codec_type === "subtitle") {
           subtitles++;
-
-          if (s.tags && s.tags.language) {
-            languages.add(s.tags.language);
-          }
+          if (s.tags?.language) languages.add(s.tags.language);
         }
       });
 
@@ -62,9 +66,7 @@ app.post("/analyze", async (req, res) => {
         video,
         audio,
         subtitles,
-        languages: Array.from(languages),
-        videoInfo,
-        audioInfo
+        languages: [...languages]
       });
     });
 
@@ -77,8 +79,4 @@ app.get("/", (req, res) => {
   res.send("✅ Metadata API Running");
 });
 
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
-});
+app.listen(process.env.PORT || 3000);
