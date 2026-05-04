@@ -7,21 +7,31 @@ const https = require("https");
 const app = express();
 app.use(express.json());
 
-// 🔥 auto ffprobe
+// ✅ ffprobe download (one time)
 if (!fs.existsSync("./ffprobe")) {
   execSync(`curl -L https://github.com/joshwnj/ffprobe-static/releases/latest/download/linux-x64 -o ffprobe && chmod +x ffprobe`);
 }
 
 ffmpeg.setFfprobePath("./ffprobe");
 
-// 🔥 STREAM FUNCTION (NO FULL DOWNLOAD)
-function streamProbe(url, callback) {
-  https.get(url, (res) => {
-    ffmpeg.ffprobe(res, (err, metadata) => {
-      callback(err, metadata);
+// 🔥 MAIN STREAM FUNCTION (IMPORTANT)
+function probeFromUrl(url) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Range": "bytes=0-2000000" // only first 2MB
+      }
+    }, (res) => {
+
+      ffmpeg.ffprobe(res, (err, metadata) => {
+        if (err) return reject(err);
+        resolve(metadata);
+      });
+
     });
-  }).on("error", (err) => {
-    callback(err, null);
+
+    req.on("error", reject);
   });
 }
 
@@ -33,71 +43,69 @@ app.post("/analyze", async (req, res) => {
       return res.json({ success: false, error: "No URL" });
     }
 
-    streamProbe(url, (err, metadata) => {
+    const metadata = await probeFromUrl(url);
 
-      if (err) {
-        console.log(err.message);
-        return res.json({
-          success: false,
-          error: "Large/protected file issue"
+    const streams = metadata.streams;
+
+    let video = 0, audio = 0, subtitles = 0;
+    let languages = new Set();
+    let videoInfo = [];
+    let audioInfo = [];
+
+    streams.forEach(s => {
+
+      if (s.codec_type === "video") {
+        video++;
+        videoInfo.push({
+          codec: s.codec_name,
+          resolution: `${s.width}x${s.height}`
         });
       }
 
-      const streams = metadata.streams;
+      if (s.codec_type === "audio") {
+        audio++;
+        audioInfo.push({
+          codec: s.codec_name,
+          channels: s.channels
+        });
 
-      let video = 0, audio = 0, subtitles = 0;
-      let languages = new Set();
-      let videoInfo = [];
-      let audioInfo = [];
-
-      streams.forEach(s => {
-        if (s.codec_type === "video") {
-          video++;
-          videoInfo.push({
-            codec: s.codec_name,
-            resolution: `${s.width}x${s.height}`
-          });
+        if (s.tags?.language) {
+          languages.add(s.tags.language);
         }
+      }
 
-        if (s.codec_type === "audio") {
-          audio++;
-          audioInfo.push({
-            codec: s.codec_name,
-            channels: s.channels
-          });
+      if (s.codec_type === "subtitle") {
+        subtitles++;
 
-          if (s.tags?.language) {
-            languages.add(s.tags.language);
-          }
+        if (s.tags?.language) {
+          languages.add(s.tags.language);
         }
-
-        if (s.codec_type === "subtitle") {
-          subtitles++;
-          if (s.tags?.language) {
-            languages.add(s.tags.language);
-          }
-        }
-      });
-
-      res.json({
-        success: true,
-        video,
-        audio,
-        subtitles,
-        languages: [...languages],
-        videoInfo,
-        audioInfo
-      });
+      }
 
     });
 
+    res.json({
+      success: true,
+      video,
+      audio,
+      subtitles,
+      languages: [...languages],
+      videoInfo,
+      audioInfo
+    });
+
   } catch (e) {
-    res.json({ success: false, error: "Server crash" });
+    console.log("ERROR:", e.message);
+
+    res.json({
+      success: false,
+      error: "Stream read failed (telegram protected / unsupported)"
+    });
   }
 });
 
 app.get("/", (req, res) => {
-  res.send("✅ PRO Metadata API Running (4GB+ Support)");
+  res.send("✅ Advanced Metadata API Running");
 });
 
 app.listen(process.env.PORT || 3000);
