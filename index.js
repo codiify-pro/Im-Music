@@ -2,62 +2,80 @@ const express = require("express");
 const ffmpeg = require("fluent-ffmpeg");
 const fs = require("fs");
 const { execSync } = require("child_process");
+const https = require("https");
 
 const app = express();
 app.use(express.json());
 
-// 🔥 AUTO DOWNLOAD FFMPEG (FIRST RUN)
-const setupFFmpeg = () => {
-  if (!fs.existsSync("./ffmpeg")) {
-    console.log("Downloading FFmpeg...");
+// 🔥 auto ffprobe
+if (!fs.existsSync("./ffprobe")) {
+  execSync(`curl -L https://github.com/joshwnj/ffprobe-static/releases/latest/download/linux-x64 -o ffprobe && chmod +x ffprobe`);
+}
 
-    execSync(`
-      curl -L https://github.com/eugeneware/ffmpeg-static/releases/latest/download/linux-x64 -o ffmpeg &&
-      chmod +x ffmpeg
-    `);
-
-    execSync(`
-      curl -L https://github.com/joshwnj/ffprobe-static/releases/latest/download/linux-x64 -o ffprobe &&
-      chmod +x ffprobe
-    `);
-  }
-};
-
-setupFFmpeg();
-
-// 👇 USE DOWNLOADED BINARIES
-ffmpeg.setFfmpegPath("./ffmpeg");
 ffmpeg.setFfprobePath("./ffprobe");
+
+// 🔥 STREAM FUNCTION (NO FULL DOWNLOAD)
+function streamProbe(url, callback) {
+  https.get(url, (res) => {
+    ffmpeg.ffprobe(res, (err, metadata) => {
+      callback(err, metadata);
+    });
+  }).on("error", (err) => {
+    callback(err, null);
+  });
+}
 
 app.post("/analyze", async (req, res) => {
   try {
     const { url } = req.body;
 
     if (!url) {
-      return res.status(400).json({ error: "No URL provided" });
+      return res.json({ success: false, error: "No URL" });
     }
 
-    ffmpeg.ffprobe(url, (err, metadata) => {
+    streamProbe(url, (err, metadata) => {
+
       if (err) {
-        return res.status(500).json({ error: err.message });
+        console.log(err.message);
+        return res.json({
+          success: false,
+          error: "Large/protected file issue"
+        });
       }
 
       const streams = metadata.streams;
 
-      let video = 0;
-      let audio = 0;
-      let subtitles = 0;
+      let video = 0, audio = 0, subtitles = 0;
       let languages = new Set();
+      let videoInfo = [];
+      let audioInfo = [];
 
-      streams.forEach((s) => {
-        if (s.codec_type === "video") video++;
+      streams.forEach(s => {
+        if (s.codec_type === "video") {
+          video++;
+          videoInfo.push({
+            codec: s.codec_name,
+            resolution: `${s.width}x${s.height}`
+          });
+        }
+
         if (s.codec_type === "audio") {
           audio++;
-          if (s.tags?.language) languages.add(s.tags.language);
+          audioInfo.push({
+            codec: s.codec_name,
+            channels: s.channels
+          });
+
+          if (s.tags?.language) {
+            languages.add(s.tags.language);
+          }
         }
+
         if (s.codec_type === "subtitle") {
           subtitles++;
-          if (s.tags?.language) languages.add(s.tags.language);
+          if (s.tags?.language) {
+            languages.add(s.tags.language);
+          }
         }
       });
 
@@ -66,17 +84,20 @@ app.post("/analyze", async (req, res) => {
         video,
         audio,
         subtitles,
-        languages: [...languages]
+        languages: [...languages],
+        videoInfo,
+        audioInfo
       });
+
     });
 
   } catch (e) {
-    res.status(500).json({ error: "Server Error" });
+    res.json({ success: false, error: "Server crash" });
   }
 });
 
 app.get("/", (req, res) => {
-  res.send("✅ Metadata API Running");
+  res.send("✅ PRO Metadata API Running (4GB+ Support)");
 });
 
 app.listen(process.env.PORT || 3000);
