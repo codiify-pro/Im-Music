@@ -41,12 +41,17 @@ def search_youtube(query):
         return None, None
 
 def download_mp3(url, chat_id):
-    """Downloads audio from the given URL and converts it to MP3 using cookies."""
+    """Downloads audio from the given URL and converts it to MP3 using cookies and client spoofing."""
     output_filename = f"audio_{chat_id}"
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'm4a/ba/b',  # More flexible format selection
         'outtmpl': f'{output_filename}.%(ext)s',
-        'cookiefile': 'cookies.txt',  # Using cookies to bypass bot check
+        'cookiefile': 'cookies.txt',
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web']  # Spoof an Android device to bypass format blocks
+            }
+        },
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -122,8 +127,7 @@ async def handle_song(client: Client, message: Message):
             os.remove(mp3_file)
             
     except Exception as e:
-        # This will now send the EXACT error to your Telegram chat
-        error_details = str(e)[:800] # Truncated to fit Telegram limits
+        error_details = str(e)[:800] 
         print(f"Process Error: {error_details}")
         await status_msg.edit_text(f"❌ **Error Occurred:**\n\n`{error_details}`\n\nPlease send a screenshot of this error if it persists.")
 
