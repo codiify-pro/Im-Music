@@ -14,6 +14,9 @@ MONGO_URI = "mongodb+srv://aaryansah954:QgDQRgyD7VUa7Eho@cluster0.wjo9zfm.mongod
 ADMIN_ID = 7006602588
 YOUTUBE_API = "AIzaSyDyjrm-og8KaN1CmxRmd-2ipz-bkRgHylk"
 
+# --- New Premium API Key ---
+VIDEO_API_KEY = "f8765ff629d8f20860793a483d8021bb79b83bca"
+
 # --- Database & Bot Initialization ---
 db_client = AsyncIOMotorClient(MONGO_URI)
 db = db_client["MusicBot"]
@@ -41,48 +44,41 @@ def search_youtube(query):
         return None, None
 
 def download_mp3(url, chat_id):
-    """Downloads audio using Cobalt API v7 with a robust fallback."""
+    """Downloads audio using your provided Premium API."""
     output_filename = f"audio_{chat_id}.mp3"
     
-    # Headers mimicking a real web browser to avoid 400/403 errors
+    # 1. API Endpoint
+    # (Docs ke hisaab se endpoint 'https://video-download-api.com/api/download' ho sakta hai)
+    api_url = "https://video-download-api.com/api/download" 
+    
+    # 2. Authentication Headers
     headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        "Origin": "https://cobalt.tools",
-        "Referer": "https://cobalt.tools/"
+        "Authorization": f"Bearer {VIDEO_API_KEY}", # Yaa fir "x-api-key": VIDEO_API_KEY ho sakta hai docs ke anusar
+        "Content-Type": "application/json"
     }
     
-    # New Cobalt v7 API Endpoint & Payload
-    api_url = "https://api.cobalt.tools/"
+    # 3. Payload
     data = {
         "url": url,
-        "downloadMode": "audio",
-        "audioFormat": "mp3"
+        "format": "mp3", 
+        "audio_only": True
     }
     
     try:
-        # 1. Try Main Cobalt API
+        # Step 1: Request download link from your API
         resp = requests.post(api_url, json=data, headers=headers)
-        
-        if resp.status_code != 200:
-            # 2. Backup API (If main is overloaded or updated)
-            fallback_url = "https://cobalt.qewertyy.dev/api/json"
-            fallback_data = {"url": url, "isAudioOnly": True, "aFormat": "mp3"}
-            resp = requests.post(fallback_url, json=fallback_data, headers=headers)
-            
         resp.raise_for_status()
         res_json = resp.json()
         
-        if res_json.get("status") == "error":
-            raise Exception(f"Cobalt Error: {res_json.get('text', 'Unknown Error')}")
-            
-        download_url = res_json.get("url")
+        # Step 2: Extract the actual MP3 download link from API response
+        # (Docs mein check kar lijiye ki link 'url' ya 'download_url' kis key mein aata hai)
+        download_url = res_json.get("url") or res_json.get("download_url") or res_json.get("link")
+        
         if not download_url:
-            raise Exception("API ne download link generate nahi kiya.")
+            raise Exception(f"API ne download link nahi diya. Response: {res_json}")
             
-        # 3. Download the actual MP3 file using the same headers
-        audio_data = requests.get(download_url, stream=True, headers=headers)
+        # Step 3: Download the file to Render Server
+        audio_data = requests.get(download_url, stream=True)
         audio_data.raise_for_status()
         
         with open(output_filename, 'wb') as f:
@@ -92,7 +88,7 @@ def download_mp3(url, chat_id):
         return output_filename
         
     except Exception as e:
-        raise Exception(f"API Failed: {e}")
+        raise Exception(f"Premium API Error: {e}")
 
 # --- Bot Command Handlers ---
 @app.on_message(filters.command("start"))
@@ -124,7 +120,7 @@ async def handle_song(client: Client, message: Message):
         await status_msg.edit_text("❌ Song not found, or the API limit has been reached.")
         return
 
-    await status_msg.edit_text(f"⏳ Found: **{video_title}**\nDownloading MP3 safely via API...")
+    await status_msg.edit_text(f"⏳ Found: **{video_title}**\nDownloading MP3 via Premium API...")
 
     try:
         mp3_file = await loop.run_in_executor(None, download_mp3, video_url, message.chat.id)
@@ -148,5 +144,5 @@ async def handle_song(client: Client, message: Message):
         await status_msg.edit_text(f"❌ **Error Occurred:**\n\n`{error_details}`")
 
 if __name__ == "__main__":
-    print("Initializing API-based bot service (v7)...")
+    print("Initializing Premium API-based bot service...")
     app.run()
