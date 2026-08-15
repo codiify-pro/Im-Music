@@ -46,7 +46,7 @@ def download_mp3(url, chat_id):
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': f'{output_filename}.%(ext)s',
-        'cookiefile': 'cookies.txt',  # Implemented to bypass bot detection
+        'cookiefile': 'cookies.txt',  # Using cookies to bypass bot check
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -116,14 +116,16 @@ async def handle_song(client: Client, message: Message):
             caption=f"🎵 **{video_title}**\n🔗 [Source Link]({video_url})"
         )
         
-        # Clean up temporary files to free up disk space
+        # Clean up temporary files
         await status_msg.delete()
         if os.path.exists(mp3_file):
             os.remove(mp3_file)
             
     except Exception as e:
-        print(f"Process Error: {e}")
-        await status_msg.edit_text("❌ An error occurred during the download or upload process. Please try again later.")
+        # This will now send the EXACT error to your Telegram chat
+        error_details = str(e)[:800] # Truncated to fit Telegram limits
+        print(f"Process Error: {error_details}")
+        await status_msg.edit_text(f"❌ **Error Occurred:**\n\n`{error_details}`\n\nPlease send a screenshot of this error if it persists.")
 
 if __name__ == "__main__":
     print("Initializing bot service...")
