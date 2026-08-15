@@ -1,9 +1,9 @@
 import os
 import asyncio
+import requests
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from googleapiclient.discovery import build
-import yt_dlp
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # --- Credentials & Configuration ---
@@ -41,36 +41,48 @@ def search_youtube(query):
         return None, None
 
 def download_mp3(url, chat_id):
-    """Downloads audio using TV/iOS clients to bypass datacenter IP blocks."""
-    output_filename = f"audio_{chat_id}"
-    ydl_opts = {
-        'format': 'ba/b',
-        'outtmpl': f'{output_filename}.%(ext)s',
-        # Bypassing IP block by spoofing TV and iOS clients (No cookies needed)
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['tv', 'ios', 'android']
-            }
-        },
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'quiet': True,
-        'no_warnings': True,
+    """Downloads audio using the free Cobalt API to completely bypass IP Blocks."""
+    output_filename = f"audio_{chat_id}.mp3"
+    api_url = "https://api.cobalt.tools/api/json"
+    
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    return f"{output_filename}.mp3"
+    
+    data = {
+        "url": url,
+        "isAudioOnly": True,
+        "aFormat": "mp3"
+    }
+    
+    # 1. Cobalt API से डाउनलोड लिंक लें
+    resp = requests.post(api_url, json=data, headers=headers)
+    resp.raise_for_status()
+    res_json = resp.json()
+    
+    if res_json.get("status") == "error":
+        raise Exception(f"Cobalt API Error: {res_json.get('text', 'Unknown Error')}")
+        
+    download_url = res_json.get("url")
+    if not download_url:
+        raise Exception("API ne download link generate nahi kiya.")
+        
+    # 2. उस लिंक से MP3 फाइल रेंडर सर्वर पर डाउनलोड करें
+    audio_data = requests.get(download_url, stream=True)
+    audio_data.raise_for_status()
+    
+    with open(output_filename, 'wb') as f:
+        for chunk in audio_data.iter_content(chunk_size=8192):
+            f.write(chunk)
+            
+    return output_filename
 
 # --- Bot Command Handlers ---
 @app.on_message(filters.command("start"))
 async def start_cmd(client: Client, message: Message):
-    """Handles the /start command and logs new users."""
     user_id = message.from_user.id
-    
-    # Save user to DB if they don't exist
     if not await users_col.find_one({"user_id": user_id}):
         await users_col.insert_one({
             "user_id": user_id, 
@@ -78,26 +90,18 @@ async def start_cmd(client: Client, message: Message):
             "first_name": message.from_user.first_name
         })
     
-    welcome_text = (
-        "Hello! Welcome to the Music Bot. 🎵\n\n"
-        "Simply send me the name of any song (e.g., 'Dhurandhar title track'), "
-        "and I will fetch the high-quality MP3 for you."
-    )
-    await message.reply_text(welcome_text)
+    await message.reply_text("Hello! Welcome to the Music Bot. 🎵\n\nSimply send me the name of any song, and I will fetch the high-quality MP3 for you.")
 
 @app.on_message(filters.command("stats") & filters.user(ADMIN_ID))
 async def stats_cmd(client: Client, message: Message):
-    """Allows the admin to check bot statistics."""
     count = await users_col.count_documents({})
     await message.reply_text(f"📊 **Bot Statistics:**\nTotal Registered Users: {count}")
 
 @app.on_message(filters.text & ~filters.command(["start", "stats"]))
 async def handle_song(client: Client, message: Message):
-    """Processes text messages as search queries."""
     query = message.text.strip()
     status_msg = await message.reply_text(f"🔍 Searching YouTube for: `{query}`...")
 
-    # Execute blocking YouTube search in a background thread
     loop = asyncio.get_event_loop()
     video_url, video_title = await loop.run_in_executor(None, search_youtube, query)
 
@@ -105,15 +109,13 @@ async def handle_song(client: Client, message: Message):
         await status_msg.edit_text("❌ Song not found, or the API limit has been reached.")
         return
 
-    await status_msg.edit_text(f"⏳ Found: **{video_title}**\nDownloading MP3...")
+    await status_msg.edit_text(f"⏳ Found: **{video_title}**\nDownloading MP3 safely via API...")
 
     try:
-        # Execute blocking download in a background thread
         mp3_file = await loop.run_in_executor(None, download_mp3, video_url, message.chat.id)
         
         await status_msg.edit_text("📤 Uploading track to Telegram...")
         
-        # Send the audio file
         await client.send_audio(
             chat_id=message.chat.id,
             audio=mp3_file,
@@ -121,7 +123,6 @@ async def handle_song(client: Client, message: Message):
             caption=f"🎵 **{video_title}**\n🔗 [Source Link]({video_url})"
         )
         
-        # Clean up temporary files
         await status_msg.delete()
         if os.path.exists(mp3_file):
             os.remove(mp3_file)
@@ -129,8 +130,8 @@ async def handle_song(client: Client, message: Message):
     except Exception as e:
         error_details = str(e)[:800] 
         print(f"Process Error: {error_details}")
-        await status_msg.edit_text(f"❌ **Error Occurred:**\n\n`{error_details}`\n\nPlease send a screenshot of this error if it persists.")
+        await status_msg.edit_text(f"❌ **Error Occurred:**\n\n`{error_details}`")
 
 if __name__ == "__main__":
-    print("Initializing bot service...")
+    print("Initializing API-based bot service...")
     app.run()
