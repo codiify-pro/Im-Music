@@ -41,15 +41,17 @@ def search_youtube(query):
         return None, None
 
 def download_mp3(url, chat_id):
-    """Downloads audio from the given URL and converts it to MP3 using cookies and client spoofing."""
+    """Downloads audio from the given URL and converts it to MP3."""
     output_filename = f"audio_{chat_id}"
     ydl_opts = {
-        'format': 'm4a/ba/b',  # More flexible format selection
+        # Extremely flexible format fallback. If standard audio isn't available, grab worst video and extract audio.
+        'format': 'ba/b',  
         'outtmpl': f'{output_filename}.%(ext)s',
         'cookiefile': 'cookies.txt',
+        # Removed Android spoofing as it breaks cookie usage.
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web']  # Spoof an Android device to bypass format blocks
+                'player_client': ['web', 'web_safari'] # Recommend Safari client for PO Tokens
             }
         },
         'postprocessors': [{
