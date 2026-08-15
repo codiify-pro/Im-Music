@@ -41,11 +41,12 @@ def search_youtube(query):
         return None, None
 
 def download_mp3(url, chat_id):
-    """Downloads audio from the given URL and converts it to MP3."""
+    """Downloads audio from the given URL and converts it to MP3 using cookies."""
     output_filename = f"audio_{chat_id}"
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': f'{output_filename}.%(ext)s',
+        'cookiefile': 'cookies.txt',  # Implemented to bypass bot detection
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
