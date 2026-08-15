@@ -1,7 +1,7 @@
 # Use Python 3.11 to fix deprecation warnings
 FROM python:3.11-slim
 
-# Install FFmpeg for yt-dlp, Git for the latest version, AND Node.js to solve YouTube's JS challenges
+# Install FFmpeg for audio conversion, Git for yt-dlp update, and Node.js for JS Challenges
 RUN apt-get update && apt-get install -y ffmpeg git nodejs
 
 # Set the working directory
