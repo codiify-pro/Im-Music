@@ -41,43 +41,58 @@ def search_youtube(query):
         return None, None
 
 def download_mp3(url, chat_id):
-    """Downloads audio using the free Cobalt API to completely bypass IP Blocks."""
+    """Downloads audio using Cobalt API v7 with a robust fallback."""
     output_filename = f"audio_{chat_id}.mp3"
-    api_url = "https://api.cobalt.tools/api/json"
     
+    # Headers mimicking a real web browser to avoid 400/403 errors
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Origin": "https://cobalt.tools",
+        "Referer": "https://cobalt.tools/"
     }
     
+    # New Cobalt v7 API Endpoint & Payload
+    api_url = "https://api.cobalt.tools/"
     data = {
         "url": url,
-        "isAudioOnly": True,
-        "aFormat": "mp3"
+        "downloadMode": "audio",
+        "audioFormat": "mp3"
     }
     
-    # 1. Cobalt API से डाउनलोड लिंक लें
-    resp = requests.post(api_url, json=data, headers=headers)
-    resp.raise_for_status()
-    res_json = resp.json()
-    
-    if res_json.get("status") == "error":
-        raise Exception(f"Cobalt API Error: {res_json.get('text', 'Unknown Error')}")
+    try:
+        # 1. Try Main Cobalt API
+        resp = requests.post(api_url, json=data, headers=headers)
         
-    download_url = res_json.get("url")
-    if not download_url:
-        raise Exception("API ne download link generate nahi kiya.")
-        
-    # 2. उस लिंक से MP3 फाइल रेंडर सर्वर पर डाउनलोड करें
-    audio_data = requests.get(download_url, stream=True)
-    audio_data.raise_for_status()
-    
-    with open(output_filename, 'wb') as f:
-        for chunk in audio_data.iter_content(chunk_size=8192):
-            f.write(chunk)
+        if resp.status_code != 200:
+            # 2. Backup API (If main is overloaded or updated)
+            fallback_url = "https://cobalt.qewertyy.dev/api/json"
+            fallback_data = {"url": url, "isAudioOnly": True, "aFormat": "mp3"}
+            resp = requests.post(fallback_url, json=fallback_data, headers=headers)
             
-    return output_filename
+        resp.raise_for_status()
+        res_json = resp.json()
+        
+        if res_json.get("status") == "error":
+            raise Exception(f"Cobalt Error: {res_json.get('text', 'Unknown Error')}")
+            
+        download_url = res_json.get("url")
+        if not download_url:
+            raise Exception("API ne download link generate nahi kiya.")
+            
+        # 3. Download the actual MP3 file using the same headers
+        audio_data = requests.get(download_url, stream=True, headers=headers)
+        audio_data.raise_for_status()
+        
+        with open(output_filename, 'wb') as f:
+            for chunk in audio_data.iter_content(chunk_size=8192):
+                f.write(chunk)
+                
+        return output_filename
+        
+    except Exception as e:
+        raise Exception(f"API Failed: {e}")
 
 # --- Bot Command Handlers ---
 @app.on_message(filters.command("start"))
@@ -133,5 +148,5 @@ async def handle_song(client: Client, message: Message):
         await status_msg.edit_text(f"❌ **Error Occurred:**\n\n`{error_details}`")
 
 if __name__ == "__main__":
-    print("Initializing API-based bot service...")
+    print("Initializing API-based bot service (v7)...")
     app.run()
